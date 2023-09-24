@@ -4,7 +4,14 @@ import joblib
 import os
 import instaloader
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask import render_template
 import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
+from datetime import datetime
+import seaborn as sns
+import numpy as np
+
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
@@ -19,6 +26,7 @@ class Flagged_User(db.Model):
     sr_flagged = db.Column(db.Integer, primary_key=True)
     username_flagged = db.Column(db.String(100), unique=True)
     count_flagged = db.Column(db.Integer, nullable=False)
+    timestamp_flagged = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 # Define the official_user model
 # Define the Official_User model with a different column name for the password
@@ -28,7 +36,6 @@ class Official_User(db.Model):
     name_official = db.Column(db.String(100), nullable=False)
     email_official = db.Column(db.String(100), unique=True, nullable=False)
     hashed_password = db.Column(db.String(256), nullable=False)  # Change 'password' to 'hashed_password'
-
 
 # Create database tables within the application context
 with app.app_context():
@@ -60,28 +67,6 @@ def register():
 
     return render_template('register.html')
 
-@app.route('/dashboard')
-def dashboard():
-    # Access the dashboard for logged-in users
-    # You can check the user's session to ensure they are logged in
-    # and retrieve their data from db2 as needed
-
-    # Query the database to fetch data for the pie chart
-    flagged_users = Flagged_User.query.all()
-    labels = [user.username_flagged for user in flagged_users]
-    counts = [user.count_flagged for user in flagged_users]
-
-    # Create a pie chart
-    plt.figure(figsize=(8, 8))
-    plt.pie(counts, labels=labels, autopct='%1.1f%%', startangle=140)
-    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-    
-    # Save the pie chart as an image
-    pie_chart_image_path = 'static/pie_chart.png'
-    plt.savefig(pie_chart_image_path, bbox_inches='tight', pad_inches=0.1)
-    
-    return render_template('dashboard.html', pie_chart_image_path=pie_chart_image_path)
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -99,14 +84,79 @@ def login():
             flash('Login failed. Please check your email and password.')
 
     return render_template('login.html')
+# ...
+
+@app.route('/dashboard')
+@app.route('/dashboard')
+def dashboard():
+    # Query the database to fetch data for the pie chart
+    flagged_users = Flagged_User.query.all()
+    labels = [user.username_flagged for user in flagged_users]
+    counts = [user.count_flagged for user in flagged_users]
+
+    # Create a pie chart
+    plt.figure(figsize=(8, 8))
+    plt.pie(counts, labels=labels, autopct='%1.1f%%', startangle=140)
+    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    
+    # Save the pie chart as an image
+    pie_chart_image_path = 'static/pie_chart.png'
+    plt.savefig(pie_chart_image_path, bbox_inches='tight', pad_inches=0.1)
+
+    # Query the database for data to create the line chart
+    # Assuming Flagged_User has a timestamp_flagged column
+    # You may need to adjust this part according to your actual data structure
+    flagged_users = Flagged_User.query.all()
+    usernames = list(set([user.username_flagged for user in flagged_users]))
 
 
-# @app.route('/dashboard')
-# def dashboard():
-#     # Access the dashboard for logged-in users
-#     # You can check the user's session to ensure they are logged in
-#     # and retrieve their data from db2 as needed
-#     return render_template('dashboard.html')
+    # Create a heatmap using the Flagged_User data
+    heatmap_data = np.zeros((len(usernames), len(usernames)))
+    for i, user1 in enumerate(usernames):
+        for j, user2 in enumerate(usernames):
+            # Calculate some metric to fill in the heatmap
+            # For example, you can use the absolute difference in counts
+            user1_flags = Flagged_User.query.filter_by(username_flagged=user1).first()
+            user2_flags = Flagged_User.query.filter_by(username_flagged=user2).first()
+            if user1_flags and user2_flags:
+                heatmap_data[i, j] = abs(user1_flags.count_flagged - user2_flags.count_flagged)
+
+    # Create a heatmap
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(heatmap_data, xticklabels=usernames, yticklabels=usernames, cmap="YlGnBu")
+
+    plt.xlabel('Flagged Users')
+    plt.ylabel('Flagged Users')
+    plt.title('Flagged Users Heatmap')
+
+    # Save the heatmap as an image
+    heatmap_image_path = 'static/heatmap.png'
+    plt.savefig(heatmap_image_path, bbox_inches='tight', pad_inches=0.1)
+
+    # Encode chart images to base64 for embedding in the HTML
+    def encode_image(image_path):
+        with open(image_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+        return f"data:image/png;base64,{encoded_string}"
+
+    # Embed the encoded images in the HTML
+    pie_chart_encoded = encode_image(pie_chart_image_path)
+    heatmap_encoded = encode_image(heatmap_image_path)
+
+    return render_template('dashboard.html',
+                           pie_chart_encoded=pie_chart_encoded,
+                           heatmap_encoded=heatmap_encoded)
+
+
+@app.route('/user_details/<username>')
+def user_details(username):
+    # Fetch user details for the given username (e.g., from the database)
+    # Replace this with your actual data retrieval logic
+    user = get_user_details(username)  # Implement this function
+
+    # Render a template to display the user details
+    return render_template('user_details.html', user=user)
+
 
 @app.route('/flag_instagram_account/<username>', methods=['POST'])
 def flag_instagram_account(username):
